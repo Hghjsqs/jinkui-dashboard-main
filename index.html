@@ -36,6 +36,11 @@
   .review-list { display: flex; flex-direction: column; gap: 8px; max-height: 320px; overflow: auto; }
   .review-item { border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px 12px; background: #fafafa; }
   .meta { font-size: 12px; color: #6b7280; margin-bottom: 4px; }
+  .import-bar { display: flex; align-items: center; gap: 10px; padding: 12px 20px; background: #fff; border-bottom: 1px solid #e5e7eb; }
+  .import-button, #reset-data { display: inline-flex; align-items: center; min-height: 36px; padding: 0 14px; border: 1px solid #1f3c88; border-radius: 6px; cursor: pointer; font: inherit; font-size: 13px; }
+  .import-button { color: #fff; background: #1f3c88; }
+  #reset-data { color: #1f3c88; background: #fff; }
+  #import-status { color: #6b7280; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   @media (max-width: 900px) { .grid2, .grid3 { grid-template-columns: 1fr; } }
 </style>
 </head>
@@ -47,6 +52,13 @@
 </div>
 
 <div id="error-box" style="display:none;padding:12px 20px;background:#fef2f2;color:#991b1b;border-bottom:1px solid #fecaca;"></div>
+
+<div class="import-bar">
+  <label class="import-button" for="excel-file">导入新的 Excel 数据</label>
+  <input id="excel-file" type="file" accept=".xlsx,.xls" hidden>
+  <button type="button" id="reset-data">恢复默认数据</button>
+  <span id="import-status">当前使用默认数据</span>
+</div>
 
 <div class="tabs">
   <div class="tab active" onclick="switchPage('overview', this)">总览</div>
@@ -113,7 +125,7 @@
 </div>
 
 <script>
-const DATA = window.DATA;
+let DATA = window.DATA;
 if (!DATA) throw new Error('data.js not loaded');
 
 function $(id) { return document.getElementById(id); }
@@ -135,6 +147,7 @@ function renderChart(id, option) {
   if (!window.echarts) return;
   const el = $(id);
   if (!el) return;
+  if (chartMap[id]) chartMap[id].dispose();
   const chart = echarts.init(el);
   chart.setOption(option);
   chartMap[id] = chart;
@@ -215,7 +228,122 @@ function fillKpi() {
   $('ov-insight').textContent = `真实好评率 ${DATA.kpi.real_good_rate}%，好评主题集中在 ${DATA.good_themes[0]?.theme || '-'}，差评主要来自 ${DATA.bad_reasons[0]?.reason || '-'}.`;
 }
 
-try {
+const THEME_RULES = [
+  ['效果反馈', ['效果', '好用', '缓解', '止痛', '见效']],
+  ['物流发货', ['物流', '发货', '快递', '到货', '送货']],
+  ['价格优惠', ['价格', '便宜', '优惠', '活动', '划算', '性价比']],
+  ['品质正品', ['正品', '品质', '品牌', '质量', '药房']],
+  ['包装体验', ['包装', '外观', '盒子', '精致', '密封']],
+  ['客服服务', ['客服', '服务', '态度', '咨询']],
+  ['复购回购', ['复购', '回购', '再买', '继续', '还会']]
+];
+const BAD_RULES = [
+  ['效果不明', ['没效果', '无效', '不明显', '没感觉', '不管用']],
+  ['假货质疑', ['假货', '假', '不是正品', '真假', '上当']],
+  ['价格偏高', ['贵', '不值', '太贵', '性价比']],
+  ['包装问题', ['包装差', '破损', '开封', '粗糙']],
+  ['物流问题', ['物流慢', '快递慢', '延迟', '漏发', '发错']],
+  ['客服问题', ['客服差', '态度差', '不处理', '不回复']]
+];
+const WEEKDAYS = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+function asText(v) { return v == null ? '' : String(v).trim(); }
+function asDate(v) {
+  if (v instanceof Date && !isNaN(v)) return v;
+  if (typeof v === 'number' && window.XLSX?.SSF) {
+    const d = XLSX.SSF.parse_date_code(v);
+    if (d) return new Date(d.y, d.m - 1, d.d);
+  }
+  const s = asText(v).replace(/[.\/]/g, '-');
+  const m = s.match(/(\d{4})-(\d{1,2})-(\d{1,2})/);
+  return m ? new Date(+m[1], +m[2] - 1, +m[3]) : null;
+}
+async function unzipXlsx(buffer) {
+  const bytes = new Uint8Array(buffer); const view = new DataView(buffer);
+  let end = -1;
+  for (let i = bytes.length - 22; i >= Math.max(0, bytes.length - 65557); i--) {
+    if (view.getUint32(i, true) === 0x06054b50) { end = i; break; }
+  }
+  if (end < 0) throw new Error('不是有效的 XLSX 文件');
+  const count = view.getUint16(end + 10, true); const central = view.getUint32(end + 16, true); const files = {};
+  const decoder = new TextDecoder('utf-8');
+  for (let p = central, i = 0; i < count; i++) {
+    if (view.getUint32(p, true) !== 0x02014b50) throw new Error('XLSX压缩目录损坏');
+    const method = view.getUint16(p + 10, true), compressed = view.getUint32(p + 20, true), nameLen = view.getUint16(p + 28, true), extraLen = view.getUint16(p + 30, true), commentLen = view.getUint16(p + 32, true), local = view.getUint32(p + 42, true);
+    const name = decoder.decode(bytes.slice(p + 46, p + 46 + nameLen));
+    const localNameLen = view.getUint16(local + 26, true), localExtraLen = view.getUint16(local + 28, true);
+    const raw = bytes.slice(local + 30 + localNameLen + localExtraLen, local + 30 + localNameLen + localExtraLen + compressed);
+    if (method === 0) files[name] = raw;
+    else if (method === 8) files[name] = new Uint8Array(await new Response(new Blob([raw]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer());
+    else throw new Error('暂不支持此 XLSX 压缩格式');
+    p += 46 + nameLen + extraLen + commentLen;
+  }
+  return files;
+}
+function xmlText(bytes) { return new TextDecoder('utf-8').decode(bytes); }
+function colNumber(ref) { let n = 0; for (const c of ref.match(/[A-Z]+/i)[0].toUpperCase()) n = n * 26 + c.charCodeAt(0) - 64; return n - 1; }
+async function readXlsxFile(buffer) {
+  const files = await unzipXlsx(buffer); const parser = new DOMParser();
+  const shared = [...(parser.parseFromString(xmlText(files['xl/sharedStrings.xml'] || new Uint8Array()), 'application/xml').getElementsByTagName('si'))].map(si => [...si.getElementsByTagName('t')].map(x => x.textContent).join(''));
+  const sheet = files['xl/worksheets/sheet1.xml']; if (!sheet) throw new Error('找不到第一个工作表');
+  const doc = parser.parseFromString(xmlText(sheet), 'application/xml'); const matrix = [];
+  for (const row of [...doc.getElementsByTagName('row')]) {
+    const values = []; let max = -1;
+    for (const cell of [...row.getElementsByTagName('c')]) {
+      const ref = cell.getAttribute('r') || ''; const index = colNumber(ref); const type = cell.getAttribute('t');
+      const v = cell.getElementsByTagName('v')[0]?.textContent || cell.getElementsByTagName('t')[0]?.textContent || '';
+      values[index] = type === 's' ? (shared[+v] || '') : v; if (index > max) max = index;
+    }
+    matrix.push(Array.from({length:max + 1}, (_, i) => values[i] ?? ''));
+  }
+  return matrix;
+}
+function monthOf(v) { const d = asDate(v); return d ? `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}` : ''; }
+function addCount(map, key, type) { if (!key) return; if (!map[key]) map[key] = {好评: 0, 中评: 0, 差评: 0}; if (map[key][type] !== undefined) map[key][type]++; }
+function words(text) {
+  const result = []; const seen = new Set();
+  for (const w of asText(text).match(/[\u4e00-\u9fff]{2,6}/g) || []) {
+    if (/^(这个|那个|商品|产品|感觉|效果|评论|评价|收到|使用|购买|好评|差评|中评|不错|很好)$/.test(w)) continue;
+    if (!seen.has(w)) { result.push(w); seen.add(w); }
+  }
+  return result;
+}
+function ruleStats(rows, rules, bad) {
+  return rules.map(([name, keys]) => {
+    const matched = rows.filter(r => (!bad || r.type === '差评' || r.type === '中评') && keys.some(k => r.review.includes(k)));
+    return { name, count: matched.length, rate: +(matched.length / Math.max(rows.length, 1) * 100).toFixed(1), samples: matched.slice(0, 3).map(r => r.review) };
+  }).filter(x => x.count).sort((a,b) => b.count-a.count);
+}
+function makeImportedData(matrix, filename) {
+  const rows = matrix.slice(1).map(r => ({
+    date: r[2], type: asText(r[3]), sku: asText(r[4]) || '未填写SKU', review: asText(r[5]), reply: asText(r[7]), replyDate: r[8]
+  })).filter(r => r.type);
+  const counts = {好评: 0, 中评: 0, 差评: 0}; const months = {}; const weekdays = {};
+  const skus = {}; const replies = {}; const goodWords = {}; const badWords = {};
+  rows.forEach(r => {
+    if (counts[r.type] !== undefined) counts[r.type]++;
+    const month = monthOf(r.date); addCount(months, month, r.type);
+    const d = asDate(r.date); if (d) addCount(weekdays, WEEKDAYS[(d.getDay()+6)%7], r.type);
+    skus[r.sku] = skus[r.sku] || {好评:0,中评:0,差评:0,total:0}; skus[r.sku].total++; if (skus[r.sku][r.type] !== undefined) skus[r.sku][r.type]++;
+    if (r.reply) { const m = monthOf(r.replyDate) || month; if (m) replies[m] = (replies[m] || 0) + 1; }
+    for (const w of words(r.review)) { const target = r.type === '差评' ? badWords : goodWords; target[w] = (target[w] || 0) + 1; }
+  });
+  const monthList = Object.keys(months).sort().map(month => { const x = months[month]; const total = x.好评+x.中评+x.差评; return {month: month+'-01', count: total, good:x.好评, mid:x.中评, bad:x.差评, real_rate:+(x.好评/Math.max(total,1)*100).toFixed(1)}; });
+  const skuList = Object.entries(skus).sort((a,b)=>b[1].total-a[1].total);
+  const skuDist = skuList.slice(0,10).map(([name,x])=>({name,value:x.total}));
+  const topSku = skuList.slice(0,8); const types = ['好评','中评','差评'];
+  return {
+    meta:{source:filename, total:rows.length, valid:rows.filter(r=>r.review).length},
+    kpi:{total:rows.length, good:counts.好评, mid:counts.中评, bad:counts.差评, real_good_rate:+(counts.好评/Math.max(counts.好评+counts.中评+counts.差评,1)*100).toFixed(1), repurchase:rows.filter(r=>r.reply).length, avg_len:+(rows.reduce((n,r)=>n+r.review.length,0)/Math.max(rows.length,1)).toFixed(1)},
+    sentiment_pie:[{name:'真实好评',value:counts.好评},{name:'中评',value:counts.中评},{name:'差评',value:counts.差评}],
+    good_themes:ruleStats(rows,THEME_RULES,false).map(x=>({...x,theme:x.name})), bad_reasons:ruleStats(rows,BAD_RULES,true).map(x=>({...x,reason:x.name})), monthly:monthList,
+    weekday:WEEKDAYS.map(name=>({name,value:Object.values(weekdays[name]||{}).reduce((a,b)=>a+b,0),good:(weekdays[name]||{}).好评||0,mid:(weekdays[name]||{}).中评||0,bad:(weekdays[name]||{}).差评||0})),
+    wordcloud:{good:Object.entries(goodWords).sort((a,b)=>b[1]-a[1]).slice(0,40).map(([name,value])=>({name,value})),bad:Object.entries(badWords).sort((a,b)=>b[1]-a[1]).slice(0,35).map(([name,value])=>({name,value}))},
+    sku_dist:skuDist, sku_heat:{skus:topSku.map(x=>x[0]),types,matrix:topSku.map(x=>types.map(t=>x[1][t]))},
+    sku_rate:skuList.map(([sku,x])=>({sku,total:x.total,real_rate:+(x.好评/Math.max(x.total,1)*100).toFixed(1),bad_n:x.差评})),
+    repurchase:{trend:Object.keys(replies).sort().map(month=>({month:month+'-01',count:replies[month]}))}
+  };
+}
+function renderAll() {
   fillKpi();
   fillTables();
   renderChart('ov-pie', optPie());
@@ -230,12 +358,37 @@ try {
   renderChart('tm-rate', optRate());
   renderChart('tm-weekday', optWeekday());
   renderChart('tm-rep', optRep());
-} catch (err) {
+}
+function showError(err) {
   const box = $('error-box');
   box.style.display = 'block';
   box.textContent = '页面渲染失败：' + err.message;
   console.error(err);
 }
+try { renderAll(); } catch (err) { showError(err); }
+
+$('excel-file').addEventListener('change', async event => {
+  const file = event.target.files[0];
+  if (!file) return;
+  try {
+    $('import-status').textContent = '正在读取 ' + file.name + ' ...';
+    const buffer = await file.arrayBuffer();
+    let matrix;
+    if (window.XLSX) {
+      const workbook = XLSX.read(buffer, {type:'array', cellDates:true});
+      matrix = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], {header:1, defval:''});
+    } else {
+      matrix = await readXlsxFile(buffer);
+    }
+    if (matrix.length < 2 || matrix[0].length < 6) throw new Error('Excel格式不正确，至少需要前6列评价数据');
+    DATA = makeImportedData(matrix, file.name);
+    $('error-box').style.display = 'none';
+    renderAll();
+    $('import-status').textContent = `已导入：${file.name}（${DATA.kpi.total} 条评论）`;
+  } catch (err) { $('import-status').textContent = '导入失败'; showError(err); }
+  event.target.value = '';
+});
+$('reset-data').addEventListener('click', () => { DATA = window.DATA; $('error-box').style.display='none'; $('import-status').textContent='当前使用默认数据'; try { renderAll(); } catch (err) { showError(err); } });
 </script>
 </body>
 </html>
