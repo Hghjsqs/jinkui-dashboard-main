@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>评价数据看板</title>
+<script src="echarts.min.js"></script>
+<script src="echarts-wordcloud.min.js"></script>
+<script src="data.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: Microsoft YaHei, sans-serif; background: #f5f7fb; color: #1f2937; }
+  .header { padding: 20px 28px; background: #1f3c88; color: #fff; }
+  .header h1 { margin: 0; font-size: 22px; }
+  .header .sub { margin-top: 6px; font-size: 13px; opacity: .9; }
+  .tabs { display: flex; gap: 8px; padding: 12px 20px; background: #fff; border-bottom: 1px solid #e5e7eb; overflow-x: auto; }
+  .tab { padding: 10px 14px; cursor: pointer; border-radius: 8px 8px 0 0; background: #eef2ff; color: #374151; white-space: nowrap; }
+  .tab.active { background: #1f3c88; color: #fff; }
+  .page { display: none; padding: 20px; max-width: 1400px; margin: 0 auto; }
+  .page.active { display: block; }
+  .kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .kpi { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 14px; }
+  .kpi .label { font-size: 12px; color: #6b7280; }
+  .kpi .value { font-size: 28px; font-weight: 700; margin-top: 8px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
+  .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; margin-bottom: 14px; }
+  .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 14px; }
+  .card h3 { margin: 0 0 10px; font-size: 15px; }
+  .chart { width: 100%; height: 320px; }
+  .chart.short { height: 260px; }
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { border-bottom: 1px solid #e5e7eb; padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: #f8fafc; }
+  .insight { background: #eef2ff; border-left: 4px solid #4f46e5; padding: 14px 16px; border-radius: 8px; line-height: 1.8; }
+  .review-list { display: flex; flex-direction: column; gap: 8px; max-height: 320px; overflow: auto; }
+  .review-item { border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px 12px; background: #fafafa; }
+  .meta { font-size: 12px; color: #6b7280; margin-bottom: 4px; }
+  @media (max-width: 900px) { .grid2, .grid3 { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>评价分析看板</h1>
+  <div class="sub" id="source-line"></div>
+</div>
+
+<div class="tabs">
+  <div class="tab active" onclick="switchPage('overview', this)">总览</div>
+  <div class="tab" onclick="switchPage('sentiment', this)">情感分析</div>
+  <div class="tab" onclick="switchPage('sku', this)">商品维度</div>
+  <div class="tab" onclick="switchPage('time', this)">时间维度</div>
+  <div class="tab" onclick="switchPage('portrait', this)">用户画像</div>
+</div>
+
+<div class="page active" id="page-overview">
+  <div class="kpi-row">
+    <div class="kpi"><div class="label">总评论数</div><div class="value" id="kpi-total">-</div></div>
+    <div class="kpi"><div class="label">真实好评率</div><div class="value" id="kpi-good">-</div></div>
+    <div class="kpi"><div class="label">中评</div><div class="value" id="kpi-mid">-</div></div>
+    <div class="kpi"><div class="label">差评</div><div class="value" id="kpi-bad">-</div></div>
+    <div class="kpi"><div class="label">追评数</div><div class="value" id="kpi-rep">-</div></div>
+    <div class="kpi"><div class="label">平均字数</div><div class="value" id="kpi-len">-</div></div>
+  </div>
+  <div class="grid2">
+    <div class="card"><h3>情感结构</h3><div id="ov-pie" class="chart" data-chart="ov-pie"></div></div>
+    <div class="card"><h3>月度趋势</h3><div id="ov-trend" class="chart" data-chart="ov-trend"></div></div>
+  </div>
+  <div class="grid2">
+    <div class="card"><h3>好评主题</h3><div id="ov-good" class="chart" data-chart="ov-good"></div></div>
+    <div class="card"><h3>差评原因</h3><div id="ov-bad" class="chart" data-chart="ov-bad"></div></div>
+  </div>
+  <div class="insight" id="ov-insight"></div>
+</div>
+
+<div class="page" id="page-sentiment">
+  <div class="grid2">
+    <div class="card"><h3>好评词云</h3><div id="sn-good" class="chart" data-chart="sn-good"></div></div>
+    <div class="card"><h3>差评词云</h3><div id="sn-bad" class="chart" data-chart="sn-bad"></div></div>
+  </div>
+  <div class="grid2">
+    <div class="card"><h3>好评明细</h3><div class="table-wrap" id="sn-good-table"></div></div>
+    <div class="card"><h3>差评明细</h3><div class="table-wrap" id="sn-bad-table"></div></div>
+  </div>
+</div>
+
+<div class="page" id="page-sku">
+  <div class="kpi-row">
+    <div class="kpi"><div class="label">规格数</div><div class="value" id="sku-count">-</div></div>
+    <div class="kpi"><div class="label">热销规格</div><div class="value" id="sku-top">-</div></div>
+    <div class="kpi"><div class="label">最好规格</div><div class="value" id="sku-best">-</div></div>
+    <div class="kpi"><div class="label">最差规格</div><div class="value" id="sku-worst">-</div></div>
+  </div>
+  <div class="grid2">
+    <div class="card"><h3>SKU分布</h3><div id="sku-dist" class="chart" data-chart="sku-dist"></div></div>
+    <div class="card"><h3>SKU情感热力</h3><div id="sku-heat" class="chart" data-chart="sku-heat"></div></div>
+  </div>
+  <div class="card"><h3>规格口碑</h3><div class="table-wrap" id="sku-table"></div></div>
+</div>
+
+<div class="page" id="page-time">
+  <div class="grid2">
+    <div class="card"><h3>月度构成</h3><div id="tm-stack" class="chart" data-chart="tm-stack"></div></div>
+    <div class="card"><h3>真实好评率趋势</h3><div id="tm-rate" class="chart" data-chart="tm-rate"></div></div>
+  </div>
+  <div class="grid2">
+    <div class="card"><h3>周分布</h3><div id="tm-weekday" class="chart short" data-chart="tm-weekday"></div></div>
+    <div class="card"><h3>追评趋势</h3><div id="tm-rep" class="chart short" data-chart="tm-rep"></div></div>
+  </div>
+</div>
+
+<div class="page" id="page-portrait">
+  <div class="grid3">
+    <div class="card"><h3>规格偏好</h3><div id="pt-spec" class="chart short" data-chart="pt-spec"></div></div>
+    <div class="card"><h3>购买场景</h3><div id="pt-scene" class="chart short" data-chart="pt-scene"></div></div>
+    <div class="card"><h3>关注点</h3><div id="pt-focus" class="chart short" data-chart="pt-focus"></div></div>
+  </div>
+  <div class="grid2">
+    <div class="card"><h3>场景评论</h3><div id="pt-scene-samples" class="review-list"></div></div>
+    <div class="card"><h3>追评样本</h3><div id="pt-rep-samples" class="review-list"></div></div>
+  </div>
+</div>
+
+<script>
+const DATA = window.DATA;
+if (!DATA) throw new Error('data.js not loaded');
+
+function $(id) { return document.getElementById(id); }
+function esc(s) { return String(s).replace(/[&<>"]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m])); }
+function trunc(s, n) { s = String(s || ''); return s.length > n ? s.slice(0, n) + '...' : s; }
+
+function switchPage(name, el) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  $('page-' + name).classList.add('active');
+  setTimeout(() => {
+    document.querySelectorAll('#page-' + name + ' [data-chart]').forEach(c => chartMap[c.id] && chartMap[c.id].resize());
+  }, 50);
+}
+
+const chartMap = {};
+function renderChart(id, option) {
+  const el = $(id);
+  const chart = echarts.init(el);
+  chart.setOption(option);
+  chartMap[id] = chart;
+  window.addEventListener('resize', () => chart.resize());
+}
+
+function optPie() {
+  return { tooltip: { trigger: 'item' }, series: [{ type: 'pie', radius: '65%', data: DATA.sentiment_pie }] };
+}
+function optTrend() {
+  return { tooltip: { trigger: 'axis' }, xAxis: { type: 'category', data: DATA.monthly.map(x => x.month.slice(0,7)) }, yAxis: { type: 'value' },
+    series: [{ type: 'line', data: DATA.monthly.map(x => x.count), smooth: true }] };
+}
+function optBar(arr, key, value) {
+  const d = arr.slice(0, 8).slice().reverse();
+  return { tooltip: { trigger: 'axis' }, grid: { left: 80, right: 20, top: 10, bottom: 20 },
+    xAxis: { type: 'value' }, yAxis: { type: 'category', data: d.map(x => x[key]) }, series: [{ type: 'bar', data: d.map(x => x[value]) }] };
+}
+function optWordcloud(data) {
+  return { series: [{ type: 'wordCloud', shape: 'circle', data, sizeRange: [14, 50] }] };
+}
+function optHeat() {
+  const h = DATA.sku_heat;
+  return { tooltip: {}, xAxis: { type: 'category', data: h.skus }, yAxis: { type: 'category', data: h.types }, visualMap: { min: 0, max: Math.max(...h.matrix.flat()) },
+    series: [{ type: 'heatmap', data: h.matrix.flatMap((row, i) => row.map((v, j) => [j, i, v])) }] };
+}
+function optStack() {
+  return { tooltip: { trigger: 'axis' }, legend: {}, xAxis: { type: 'category', data: DATA.monthly.map(x => x.month.slice(0,7)) }, yAxis: { type: 'value' },
+    series: [
+      { name: '好评', type: 'bar', stack: 'a', data: DATA.monthly.map(x => x.good) },
+      { name: '中评', type: 'bar', stack: 'a', data: DATA.monthly.map(x => x.mid) },
+      { name: '差评', type: 'bar', stack: 'a', data: DATA.monthly.map(x => x.bad) },
+    ] };
+}
+function optRate() {
+  return { tooltip: { trigger: 'axis' }, xAxis: { type: 'category', data: DATA.monthly.map(x => x.month.slice(0,7)) }, yAxis: { type: 'value', max: 100 },
+    series: [{ type: 'line', data: DATA.monthly.map(x => x.real_rate), smooth: true }] };
+}
+function optWeekday() {
+  return { tooltip: {}, xAxis: { type: 'category', data: DATA.weekday.map(x => x.name) }, yAxis: { type: 'value' }, series: [{ type: 'bar', data: DATA.weekday.map(x => x.value) }] };
+}
+function optRep() {
+  return { tooltip: {}, xAxis: { type: 'category', data: DATA.repurchase.trend.map(x => x.month.slice(0,7)) }, yAxis: { type: 'value' }, series: [{ type: 'line', data: DATA.repurchase.trend.map(x => x.count) }] };
+}
+function fillTables() {
+  $('sn-good-table').innerHTML = `<table><tr><th>主题</th><th>命中</th><th>占比</th><th>样本</th></tr>${
+    DATA.good_themes.map(t => `<tr><td>${esc(t.theme)}</td><td>${t.count}</td><td>${t.rate}%</td><td>${esc(trunc(t.samples[0] || '', 60))}</td></tr>`).join('')
+  }</table>`;
+  $('sn-bad-table').innerHTML = `<table><tr><th>原因</th><th>命中</th><th>占比</th><th>样本</th></tr>${
+    DATA.bad_reasons.map(t => `<tr><td>${esc(t.reason)}</td><td>${t.count}</td><td>${t.rate}%</td><td>${esc(trunc(t.samples[0] || '', 60))}</td></tr>`).join('')
+  }</table>`;
+  $('sku-table').innerHTML = `<table><tr><th>规格</th><th>总数</th><th>真实好评率</th><th>差评数</th></tr>${
+    DATA.sku_rate.slice(0, 20).map(s => `<tr><td>${esc(s.sku)}</td><td>${s.total}</td><td>${s.real_rate}%</td><td>${s.bad_n}</td></tr>`).join('')
+  }</table>`;
+  $('pt-scene-samples').innerHTML = DATA.portrait.scene.map(s => `<div class="review-item"><div class="meta">${esc(s.name)} ${s.count}</div>${esc(trunc(s.samples[0] || '', 110))}</div>`).join('');
+  $('pt-rep-samples').innerHTML = DATA.repurchase.samples.map(s => `<div class="review-item">${esc(trunc(s, 110))}</div>`).join('');
+}
+function fillKpi() {
+  $('source-line').textContent = `来源：${DATA.meta.source} | 评论数：${DATA.kpi.total}`;
+  $('kpi-total').textContent = DATA.kpi.total;
+  $('kpi-good').textContent = DATA.kpi.real_good_rate + '%';
+  $('kpi-mid').textContent = DATA.kpi.mid;
+  $('kpi-bad').textContent = DATA.kpi.bad;
+  $('kpi-rep').textContent = DATA.kpi.repurchase;
+  $('kpi-len').textContent = DATA.kpi.avg_len;
+  $('sku-count').textContent = DATA.sku_dist.length;
+  $('sku-top').textContent = DATA.sku_dist[0] ? DATA.sku_dist[0].name : '-';
+  const best = DATA.sku_rate.slice().sort((a, b) => b.real_rate - a.real_rate)[0];
+  const worst = DATA.sku_rate.slice().sort((a, b) => a.real_rate - b.real_rate)[0];
+  $('sku-best').textContent = best ? best.sku : '-';
+  $('sku-worst').textContent = worst ? worst.sku : '-';
+  $('ov-insight').textContent = `真实好评率 ${DATA.kpi.real_good_rate}%，好评主题集中在 ${DATA.good_themes[0]?.theme || '-'}，差评主要来自 ${DATA.bad_reasons[0]?.reason || '-'}.`;
+}
+
+fillKpi();
+fillTables();
+renderChart('ov-pie', optPie());
+renderChart('ov-trend', optTrend());
+renderChart('ov-good', optBar(DATA.good_themes, 'theme', 'count'));
+renderChart('ov-bad', optBar(DATA.bad_reasons, 'reason', 'count'));
+renderChart('sn-good', optWordcloud(DATA.wordcloud.good));
+renderChart('sn-bad', optWordcloud(DATA.wordcloud.bad));
+renderChart('sku-dist', { tooltip: {}, xAxis: { type: 'category', data: DATA.sku_dist.map(x => x.name) }, yAxis: { type: 'value' }, series: [{ type: 'bar', data: DATA.sku_dist.map(x => x.value) }] });
+renderChart('sku-heat', optHeat());
+renderChart('tm-stack', optStack());
+renderChart('tm-rate', optRate());
+renderChart('tm-weekday', optWeekday());
+renderChart('tm-rep', optRep());
+renderChart('pt-spec', { tooltip: {}, series: [{ type: 'pie', data: DATA.portrait.spec_type }] });
+renderChart('pt-scene', { tooltip: {}, xAxis: { type: 'value' }, yAxis: { type: 'category', data: DATA.portrait.scene.map(x => x.name) }, series: [{ type: 'bar', data: DATA.portrait.scene.map(x => x.count) }] });
+renderChart('pt-focus', { tooltip: {}, series: [{ type: 'pie', data: DATA.portrait.focus }] });
+</script>
+</body>
+</html>
