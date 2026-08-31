@@ -148,6 +148,7 @@ real_total = good + mid + bad
 template = 0
 
 monthly = defaultdict(lambda: Counter())
+weekday_stats = defaultdict(Counter)
 sku_stats = defaultdict(lambda: Counter())
 sku_type_stats = defaultdict(lambda: Counter())
 sku_name_counts = Counter()
@@ -167,6 +168,17 @@ keyword_bad = Counter()
 for r in rows:
     month = norm_month(r["date"])
     monthly[month][r["type"]] += 1
+    if isinstance(r["date"], (datetime, date)):
+        weekday_name = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"][r["date"].weekday()]
+    else:
+        try:
+            weekday_name = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"][
+                datetime.strptime(text(r["date"])[:10], "%Y-%m-%d").weekday()
+            ]
+        except ValueError:
+            weekday_name = None
+    if weekday_name:
+        weekday_stats[weekday_name][r["type"]] += 1
     review = r["review"]
     sku = r["sku"]
     sku_name_counts[sku] += 1
@@ -247,6 +259,17 @@ for month in sorted(monthly):
         }
     )
 
+weekday_list = [
+    {
+        "name": name,
+        "value": sum(weekday_stats[name].values()),
+        "good": weekday_stats[name]["好评"],
+        "mid": weekday_stats[name]["中评"],
+        "bad": weekday_stats[name]["差评"],
+    }
+    for name in ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+]
+
 sku_dist = [{"name": sku, "value": cnt} for sku, cnt in sku_name_counts.most_common(10)]
 
 sku_rate = []
@@ -323,6 +346,7 @@ data = {
     "good_themes": top_samples(SCENE_RULES, rows),
     "bad_reasons": top_bad(BAD_RULES, rows),
     "monthly": monthly_list,
+    "weekday": weekday_list,
     "wordcloud": {"good": good_wordcloud, "bad": bad_wordcloud},
     "sku_dist": sku_dist,
     "sku_heat": sku_heat,

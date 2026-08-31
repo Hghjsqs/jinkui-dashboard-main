@@ -43,7 +43,10 @@
 <div class="header">
   <h1>评价分析看板</h1>
   <div class="sub" id="source-line"></div>
+  <div class="sub" id="time-range"></div>
 </div>
+
+<div id="error-box" style="display:none;padding:12px 20px;background:#fef2f2;color:#991b1b;border-bottom:1px solid #fecaca;"></div>
 
 <div class="tabs">
   <div class="tab active" onclick="switchPage('overview', this)">总览</div>
@@ -99,12 +102,13 @@
 </div>
 
 <div class="page" id="page-time">
+  <div class="insight" id="time-range-box" style="margin-bottom:14px;"></div>
   <div class="grid2">
-    <div class="card"><h3>月度构成</h3><div id="tm-stack" class="chart" data-chart="tm-stack"></div></div>
+    <div class="card"><h3>每月好评、中评、差评数量</h3><div id="tm-stack" class="chart" data-chart="tm-stack"></div></div>
     <div class="card"><h3>真实好评率趋势</h3><div id="tm-rate" class="chart" data-chart="tm-rate"></div></div>
   </div>
   <div class="grid2">
-    <div class="card"><h3>周分布</h3><div id="tm-weekday" class="chart short" data-chart="tm-weekday"></div></div>
+    <div class="card"><h3>按星期几的好评、中评、差评数量</h3><div id="tm-weekday" class="chart short" data-chart="tm-weekday"></div></div>
     <div class="card"><h3>追评趋势</h3><div id="tm-rep" class="chart short" data-chart="tm-rep"></div></div>
   </div>
 </div>
@@ -141,7 +145,9 @@ function switchPage(name, el) {
 
 const chartMap = {};
 function renderChart(id, option) {
+  if (!window.echarts) return;
   const el = $(id);
+  if (!el) return;
   const chart = echarts.init(el);
   chart.setOption(option);
   chartMap[id] = chart;
@@ -169,7 +175,7 @@ function optHeat() {
     series: [{ type: 'heatmap', data: h.matrix.flatMap((row, i) => row.map((v, j) => [j, i, v])) }] };
 }
 function optStack() {
-  return { tooltip: { trigger: 'axis' }, legend: {}, xAxis: { type: 'category', data: DATA.monthly.map(x => x.month.slice(0,7)) }, yAxis: { type: 'value' },
+  return { tooltip: { trigger: 'axis' }, legend: { data: ['好评', '中评', '差评'] }, xAxis: { type: 'category', data: DATA.monthly.map(x => x.month.slice(0,7)) }, yAxis: { type: 'value', name: '评论数' },
     series: [
       { name: '好评', type: 'bar', stack: 'a', data: DATA.monthly.map(x => x.good) },
       { name: '中评', type: 'bar', stack: 'a', data: DATA.monthly.map(x => x.mid) },
@@ -181,7 +187,12 @@ function optRate() {
     series: [{ type: 'line', data: DATA.monthly.map(x => x.real_rate), smooth: true }] };
 }
 function optWeekday() {
-  return { tooltip: {}, xAxis: { type: 'category', data: DATA.weekday.map(x => x.name) }, yAxis: { type: 'value' }, series: [{ type: 'bar', data: DATA.weekday.map(x => x.value) }] };
+  return { tooltip: { trigger: 'axis' }, legend: { data: ['好评', '中评', '差评'] }, xAxis: { type: 'category', data: DATA.weekday.map(x => x.name) }, yAxis: { type: 'value', name: '评论数' },
+    series: [
+      { name: '好评', type: 'bar', data: DATA.weekday.map(x => x.good) },
+      { name: '中评', type: 'bar', data: DATA.weekday.map(x => x.mid) },
+      { name: '差评', type: 'bar', data: DATA.weekday.map(x => x.bad) },
+    ] };
 }
 function optRep() {
   return { tooltip: {}, xAxis: { type: 'category', data: DATA.repurchase.trend.map(x => x.month.slice(0,7)) }, yAxis: { type: 'value' }, series: [{ type: 'line', data: DATA.repurchase.trend.map(x => x.count) }] };
@@ -201,6 +212,9 @@ function fillTables() {
 }
 function fillKpi() {
   $('source-line').textContent = `来源：${DATA.meta.source} | 评论数：${DATA.kpi.total}`;
+  const months = DATA.monthly.map(x => x.month.slice(0, 7));
+  $('time-range').textContent = months.length ? `时间范围：${months[0]} 至 ${months[months.length - 1]}` : '';
+  $('time-range-box').textContent = months.length ? `时间维度覆盖 ${months[0]} 到 ${months[months.length - 1]}，共 ${months.length} 个月。` : '';
   $('kpi-total').textContent = DATA.kpi.total;
   $('kpi-good').textContent = DATA.kpi.real_good_rate + '%';
   $('kpi-mid').textContent = DATA.kpi.mid;
@@ -216,23 +230,30 @@ function fillKpi() {
   $('ov-insight').textContent = `真实好评率 ${DATA.kpi.real_good_rate}%，好评主题集中在 ${DATA.good_themes[0]?.theme || '-'}，差评主要来自 ${DATA.bad_reasons[0]?.reason || '-'}.`;
 }
 
-fillKpi();
-fillTables();
-renderChart('ov-pie', optPie());
-renderChart('ov-trend', optTrend());
-renderChart('ov-good', optBar(DATA.good_themes, 'theme', 'count'));
-renderChart('ov-bad', optBar(DATA.bad_reasons, 'reason', 'count'));
-renderChart('sn-good', optWordcloud(DATA.wordcloud.good));
-renderChart('sn-bad', optWordcloud(DATA.wordcloud.bad));
-renderChart('sku-dist', { tooltip: {}, xAxis: { type: 'category', data: DATA.sku_dist.map(x => x.name) }, yAxis: { type: 'value' }, series: [{ type: 'bar', data: DATA.sku_dist.map(x => x.value) }] });
-renderChart('sku-heat', optHeat());
-renderChart('tm-stack', optStack());
-renderChart('tm-rate', optRate());
-renderChart('tm-weekday', optWeekday());
-renderChart('tm-rep', optRep());
-renderChart('pt-spec', { tooltip: {}, series: [{ type: 'pie', data: DATA.portrait.spec_type }] });
-renderChart('pt-scene', { tooltip: {}, xAxis: { type: 'value' }, yAxis: { type: 'category', data: DATA.portrait.scene.map(x => x.name) }, series: [{ type: 'bar', data: DATA.portrait.scene.map(x => x.count) }] });
-renderChart('pt-focus', { tooltip: {}, series: [{ type: 'pie', data: DATA.portrait.focus }] });
+try {
+  fillKpi();
+  fillTables();
+  renderChart('ov-pie', optPie());
+  renderChart('ov-trend', optTrend());
+  renderChart('ov-good', optBar(DATA.good_themes, 'theme', 'count'));
+  renderChart('ov-bad', optBar(DATA.bad_reasons, 'reason', 'count'));
+  renderChart('sn-good', optWordcloud(DATA.wordcloud.good));
+  renderChart('sn-bad', optWordcloud(DATA.wordcloud.bad));
+  renderChart('sku-dist', { tooltip: {}, xAxis: { type: 'category', data: DATA.sku_dist.map(x => x.name) }, yAxis: { type: 'value' }, series: [{ type: 'bar', data: DATA.sku_dist.map(x => x.value) }] });
+  renderChart('sku-heat', optHeat());
+  renderChart('tm-stack', optStack());
+  renderChart('tm-rate', optRate());
+  renderChart('tm-weekday', optWeekday());
+  renderChart('tm-rep', optRep());
+  renderChart('pt-spec', { tooltip: {}, series: [{ type: 'pie', data: DATA.portrait.spec_type.map(x => ({ name: x.name, value: x.value })) }] });
+  renderChart('pt-scene', { tooltip: {}, xAxis: { type: 'value' }, yAxis: { type: 'category', data: DATA.portrait.scene.map(x => x.name) }, series: [{ type: 'bar', data: DATA.portrait.scene.map(x => x.count) }] });
+  renderChart('pt-focus', { tooltip: {}, series: [{ type: 'pie', data: DATA.portrait.focus.map(x => ({ name: x.name, value: x.count })) }] });
+} catch (err) {
+  const box = $('error-box');
+  box.style.display = 'block';
+  box.textContent = '页面渲染失败：' + err.message;
+  console.error(err);
+}
 </script>
 </body>
 </html>
