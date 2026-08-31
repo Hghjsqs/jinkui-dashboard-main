@@ -53,7 +53,6 @@
   <div class="tab" onclick="switchPage('sentiment', this)">情感分析</div>
   <div class="tab" onclick="switchPage('sku', this)">商品维度</div>
   <div class="tab" onclick="switchPage('time', this)">时间维度</div>
-  <div class="tab" onclick="switchPage('portrait', this)">用户画像</div>
 </div>
 
 <div class="page active" id="page-overview">
@@ -110,18 +109,6 @@
   <div class="grid2">
     <div class="card"><h3>按星期几的好评、中评、差评数量</h3><div id="tm-weekday" class="chart short" data-chart="tm-weekday"></div></div>
     <div class="card"><h3>追评趋势</h3><div id="tm-rep" class="chart short" data-chart="tm-rep"></div></div>
-  </div>
-</div>
-
-<div class="page" id="page-portrait">
-  <div class="grid3">
-    <div class="card"><h3>规格偏好</h3><div id="pt-spec" class="chart short" data-chart="pt-spec"></div></div>
-    <div class="card"><h3>购买场景</h3><div id="pt-scene" class="chart short" data-chart="pt-scene"></div></div>
-    <div class="card"><h3>关注点</h3><div id="pt-focus" class="chart short" data-chart="pt-focus"></div></div>
-  </div>
-  <div class="grid2">
-    <div class="card"><h3>场景评论</h3><div id="pt-scene-samples" class="review-list"></div></div>
-    <div class="card"><h3>追评样本</h3><div id="pt-rep-samples" class="review-list"></div></div>
   </div>
 </div>
 
@@ -199,16 +186,14 @@ function optRep() {
 }
 function fillTables() {
   $('sn-good-table').innerHTML = `<table><tr><th>主题</th><th>命中</th><th>占比</th><th>样本</th></tr>${
-    DATA.good_themes.map(t => `<tr><td>${esc(t.theme)}</td><td>${t.count}</td><td>${t.rate}%</td><td>${esc(trunc(t.samples[0] || '', 60))}</td></tr>`).join('')
+    DATA.good_themes.map(t => `<tr><td>${esc(t.theme)}</td><td>${t.count}</td><td>${t.rate}%</td><td>${esc(trunc((t.samples || [])[0] || '', 60))}</td></tr>`).join('')
   }</table>`;
   $('sn-bad-table').innerHTML = `<table><tr><th>原因</th><th>命中</th><th>占比</th><th>样本</th></tr>${
-    DATA.bad_reasons.map(t => `<tr><td>${esc(t.reason)}</td><td>${t.count}</td><td>${t.rate}%</td><td>${esc(trunc(t.samples[0] || '', 60))}</td></tr>`).join('')
+    DATA.bad_reasons.map(t => `<tr><td>${esc(t.reason)}</td><td>${t.count}</td><td>${t.rate}%</td><td>${esc(trunc((t.samples || [])[0] || '', 60))}</td></tr>`).join('')
   }</table>`;
   $('sku-table').innerHTML = `<table><tr><th>规格</th><th>总数</th><th>真实好评率</th><th>差评数</th></tr>${
     DATA.sku_rate.slice(0, 20).map(s => `<tr><td>${esc(s.sku)}</td><td>${s.total}</td><td>${s.real_rate}%</td><td>${s.bad_n}</td></tr>`).join('')
   }</table>`;
-  $('pt-scene-samples').innerHTML = DATA.portrait.scene.map(s => `<div class="review-item"><div class="meta">${esc(s.name)} ${s.count}</div>${esc(trunc(s.samples[0] || '', 110))}</div>`).join('');
-  $('pt-rep-samples').innerHTML = DATA.repurchase.samples.map(s => `<div class="review-item">${esc(trunc(s, 110))}</div>`).join('');
 }
 function fillKpi() {
   $('source-line').textContent = `来源：${DATA.meta.source} | 评论数：${DATA.kpi.total}`;
@@ -245,9 +230,6 @@ try {
   renderChart('tm-rate', optRate());
   renderChart('tm-weekday', optWeekday());
   renderChart('tm-rep', optRep());
-  renderChart('pt-spec', { tooltip: {}, series: [{ type: 'pie', data: DATA.portrait.spec_type.map(x => ({ name: x.name, value: x.value })) }] });
-  renderChart('pt-scene', { tooltip: {}, xAxis: { type: 'value' }, yAxis: { type: 'category', data: DATA.portrait.scene.map(x => x.name) }, series: [{ type: 'bar', data: DATA.portrait.scene.map(x => x.count) }] });
-  renderChart('pt-focus', { tooltip: {}, series: [{ type: 'pie', data: DATA.portrait.focus.map(x => ({ name: x.name, value: x.count })) }] });
 } catch (err) {
   const box = $('error-box');
   box.style.display = 'block';
